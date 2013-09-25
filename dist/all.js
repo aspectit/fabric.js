@@ -8614,7 +8614,7 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
 
       // http://www.geog.ubc.ca/courses/klink/gis.notes/ncgia/u32.html
       // http://idav.ucdavis.edu/~okreylos/TAship/Spring2000/PointInPolygon.html
-      return (target.containsPoint(xy) || target._findTargetCorner(e, this._offset));
+      return (target.containsPoint(xy) || target._findTargetCorner(pointer));
     },
 
     /**
@@ -8721,9 +8721,9 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
 
       var action = 'drag',
           corner,
-          pointer = getPointer(e, target.canvas.upperCanvasEl);
+          pointer = this.getPointer(e);
 
-      corner = target._findTargetCorner(e, this._offset);
+      corner = target._findTargetCorner(pointer);
       if (corner) {
         action = (corner === 'ml' || corner === 'mr')
           ? 'scaleX'
@@ -8885,7 +8885,6 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
      */
     _scaleObject: function (x, y, by) {
       var t = this._currentTransform,
-          offset = this._offset,
           target = t.target;
 
       var lockScalingX = target.get('lockScalingX'),
@@ -8895,7 +8894,7 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
 
       // Get the constraint point
       var constraintPosition = target.translateToOriginPoint(target.getCenterPoint(), t.originX, t.originY);
-      var localMouse = target.toLocalPoint(new fabric.Point(x - offset.left, y - offset.top), t.originX, t.originY);
+      var localMouse = target.toLocalPoint(new fabric.Point(x, y), t.originX, t.originY);
 
       if (t.originX === 'right') {
         localMouse.x *= -1;
@@ -8999,13 +8998,12 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
      */
     _rotateObject: function (x, y) {
 
-      var t = this._currentTransform,
-          o = this._offset;
+      var t = this._currentTransform;
 
       if (t.target.get('lockRotation')) return;
 
-      var lastAngle = atan2(t.ey - t.top - o.top, t.ex - t.left - o.left),
-          curAngle = atan2(y - t.top - o.top, x - t.left - o.left),
+      var lastAngle = atan2(t.ey - t.top, t.ex - t.left),
+          curAngle = atan2(y - t.top, x - t.left),
           angle = radiansToDegrees(curAngle - lastAngle + t.theta);
 
       // normalize angle to positive value
@@ -9143,7 +9141,7 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
           this.lastRenderedObjectWithControlsAboveOverlay &&
           this.lastRenderedObjectWithControlsAboveOverlay.visible &&
           this.containsPoint(e, this.lastRenderedObjectWithControlsAboveOverlay) &&
-          this.lastRenderedObjectWithControlsAboveOverlay._findTargetCorner(e, this._offset)) {
+          this.lastRenderedObjectWithControlsAboveOverlay._findTargetCorner(pointer)) {
         target = this.lastRenderedObjectWithControlsAboveOverlay;
         return target;
       }
@@ -9196,9 +9194,13 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
      */
     getPointer: function (e) {
       var pointer = getPointer(e, this.upperCanvasEl);
+      var cssScale = {
+        width: this.upperCanvasEl.width / this.upperCanvasEl.offsetWidth,
+        height: this.upperCanvasEl.height / this.upperCanvasEl.offsetHeight,
+      }
       return {
-        x: pointer.x - this._offset.left,
-        y: pointer.y - this._offset.top
+        x: (pointer.x - this._offset.left) * cssScale.width,
+        y: (pointer.y - this._offset.top) * cssScale.height
       };
     },
 
@@ -9746,7 +9748,7 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
         // determine if it's a drag or rotate case
         this.stateful && target.saveState();
 
-        if ((corner = target._findTargetCorner(e, this._offset))) {
+        if ((corner = target._findTargetCorner(pointer))) {
           this.onBeforeScaleRotate(target);
         }
 
@@ -9815,10 +9817,10 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
 
       // We initially clicked in an empty area, so we draw a box for multiple selection.
       if (groupSelector) {
-        pointer = getPointer(e, this.upperCanvasEl);
+        pointer = this.getPointer(e);
 
-        groupSelector.left = pointer.x - this._offset.left - groupSelector.ex;
-        groupSelector.top = pointer.y - this._offset.top - groupSelector.ey;
+        groupSelector.left = pointer.x - groupSelector.ex;
+        groupSelector.top = pointer.y - groupSelector.ey;
         this.renderTop();
       }
       else if (!this._currentTransform) {
@@ -9843,7 +9845,7 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
       }
       else {
         // object is being transformed (scaled/rotated/moved/etc.)
-        pointer = getPointer(e, this.upperCanvasEl);
+        pointer = this.getPointer(e);
 
         var x = pointer.x,
             y = pointer.y,
@@ -9932,7 +9934,7 @@ fabric.PatternBrush = fabric.util.createClass(fabric.PencilBrush, /** @lends fab
         // only show proper corner when group selection is not active
         var corner = target._findTargetCorner
                       && (!activeGroup || !activeGroup.contains(target))
-                      && target._findTargetCorner(e, this._offset);
+                      && target._findTargetCorner(this.getPointer(e));
 
         if (!corner) {
           s.cursor = target.hoverCursor || this.hoverCursor;
@@ -12231,16 +12233,14 @@ fabric.util.object.extend(fabric.Object.prototype, /** @lends fabric.Object.prot
     /**
      * Determines which one of the four corners has been clicked
      * @private
-     * @param {Event} e Event object
-     * @param {Object} offset Canvas offset
+     * @param {Object} pointer The pointer indicating the mouse position
      * @return {String|Boolean} corner code (tl, tr, bl, br, etc.), or false if nothing is found
      */
-    _findTargetCorner: function(e, offset) {
+    _findTargetCorner: function(pointer) {
       if (!this.hasControls || !this.active) return false;
 
-      var pointer = getPointer(e, this.canvas.upperCanvasEl),
-          ex = pointer.x - offset.left,
-          ey = pointer.y - offset.top,
+      var ex = pointer.x,
+          ey = pointer.y,
           xPoints,
           lines;
 
